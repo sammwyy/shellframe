@@ -1,0 +1,12 @@
+[package]
+name = "shellframe"
+version = "0.1.0"
+edition = "2021"
+description = "A shell framework for building custom shells"
+authors = ["Sammwy"]
+
+[dependencies]
+thiserror = "1.0"
+anyhow = "1.0"
+indexmap = "2.0"
+rustyline = "14.0"
