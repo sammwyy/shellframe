@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "A shell framework for building custom shells"
 authors = ["Sammwy"]
+license = "MIT"
+repository = "https://github.com/sammwyy/shellframe"
 
 [dependencies]
 thiserror = "1.0"
