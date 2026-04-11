@@ -33,11 +33,15 @@ impl Output {
     }
 }
 
-pub type BuiltinFn<T> = fn(args: &[String], context: &mut Context<T>, stdin: &str) -> Result<Output>;
-pub type HookFn<T> = fn(name: &str, args: &[String], context: &mut Context<T>, stdin: &str) -> Result<Output>;
-pub type PromptFn<T> = fn(context: &Context<T>) -> String;
+pub type BuiltinFn<T> =
+    std::sync::Arc<dyn Fn(&[String], &mut Context<T>, &str) -> Result<Output> + Send + Sync>;
+pub type HookFn<T> =
+    std::sync::Arc<dyn Fn(&str, &[String], &mut Context<T>, &str) -> Result<Output> + Send + Sync>;
+pub type PromptFn<T> = std::sync::Arc<dyn Fn(&Context<T>) -> String + Send + Sync>;
 // Redirection hook receives the evaluated (expanded) filename
-pub type RedirectFn<T> = fn(shell: &mut Shell<T>, expr: &Expr, file: &str, mode: &RedirectMode, stdin: &str) -> Result<Output>;
+pub type RedirectFn<T> = std::sync::Arc<
+    dyn Fn(&mut Shell<T>, &Expr, &str, &RedirectMode, &str) -> Result<Output> + Send + Sync,
+>;
 
 pub struct Context<T = ()> {
     cwd: String,
@@ -98,24 +102,40 @@ impl<T> Shell<T> {
         }
     }
 
-    pub fn register_builtin(&mut self, name: &str, f: BuiltinFn<T>) {
-        self.builtins.insert(name.to_string(), f);
+    pub fn register_builtin<F>(&mut self, name: &str, f: F)
+    where
+        F: Fn(&[String], &mut Context<T>, &str) -> Result<Output> + Send + Sync + 'static,
+    {
+        self.builtins
+            .insert(name.to_string(), std::sync::Arc::new(f));
     }
 
-    pub fn set_hook(&mut self, hook: HookFn<T>) {
-        self.hook = Some(hook);
+    pub fn set_hook<F>(&mut self, hook: F)
+    where
+        F: Fn(&str, &[String], &mut Context<T>, &str) -> Result<Output> + Send + Sync + 'static,
+    {
+        self.hook = Some(std::sync::Arc::new(hook));
     }
 
-    pub fn set_prompter(&mut self, prompter: PromptFn<T>) {
-        self.prompter = Some(prompter);
+    pub fn set_prompter<F>(&mut self, prompter: F)
+    where
+        F: Fn(&Context<T>) -> String + Send + Sync + 'static,
+    {
+        self.prompter = Some(std::sync::Arc::new(prompter));
     }
 
-    pub fn set_redirect_handler(&mut self, handler: RedirectFn<T>) {
-        self.redirect_handler = Some(handler);
+    pub fn set_redirect_handler<F>(&mut self, handler: F)
+    where
+        F: Fn(&mut Shell<T>, &Expr, &str, &RedirectMode, &str) -> Result<Output>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.redirect_handler = Some(std::sync::Arc::new(handler));
     }
 
     pub fn prompt(&self) -> String {
-        if let Some(p) = self.prompter {
+        if let Some(p) = self.prompter.clone() {
             p(&self.context)
         } else {
             format!("{}> ", self.context.get_cwd())
@@ -138,10 +158,14 @@ impl<T> Shell<T> {
 
             Expr::Redirect { expr, file, mode } => {
                 let file_str = self.expand_word(file)?;
-                if let Some(handler) = self.redirect_handler {
+                if let Some(handler) = self.redirect_handler.clone() {
                     handler(self, expr, &file_str, mode, stdin)
                 } else {
-                    Ok(Output::error(1, "".into(), "Redirection not supported by this shell\n".into()))
+                    Ok(Output::error(
+                        1,
+                        "".into(),
+                        "Redirection not supported by this shell\n".into(),
+                    ))
                 }
             }
 
@@ -189,16 +213,20 @@ impl<T> Shell<T> {
             arg_strs.push(self.expand_word(arg)?);
         }
 
-        if let Some(builtin) = self.builtins.get(&name_str) {
+        if let Some(builtin) = self.builtins.get(&name_str).cloned() {
             let out = builtin(&arg_strs, &mut self.context, stdin)?;
             self.context.last_exit_code = out.exit_code;
             Ok(out)
-        } else if let Some(hook) = self.hook {
+        } else if let Some(hook) = self.hook.clone() {
             let out = hook(&name_str, &arg_strs, &mut self.context, stdin)?;
             self.context.last_exit_code = out.exit_code;
             Ok(out)
         } else {
-            Ok(Output::error(127, "".into(), format!("command not found: {}\n", name_str)))
+            Ok(Output::error(
+                127,
+                "".into(),
+                format!("command not found: {}\n", name_str),
+            ))
         }
     }
 
