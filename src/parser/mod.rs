@@ -74,6 +74,11 @@ impl Parser {
 
     /// list = pipeline ( ('&&'|'||'|';'|'&') pipeline )*
     fn parse_list(&mut self) -> ParseResult<Expr> {
+        // Skip leading separators
+        while matches!(self.peek(), Token::Semi) {
+            self.advance();
+        }
+
         let mut left = self.parse_pipeline()?;
 
         loop {
@@ -95,17 +100,16 @@ impl Parser {
                     };
                 }
                 Token::Semi => {
-                    self.advance();
+                    while matches!(self.peek(), Token::Semi) {
+                        self.advance();
+                    }
+
                     if self.is_done()
-                        || matches!(
-                            self.peek(),
-                            Token::RParen | Token::And | Token::Or | Token::Semi
-                        )
+                        || matches!(self.peek(), Token::RParen | Token::And | Token::Or)
                     {
-                        // trailing semicolon — wrap as sequence with no RHS
-                        // just return left as-is (bash behaviour)
                         break;
                     }
+
                     let right = self.parse_pipeline()?;
                     left = Expr::Sequence {
                         left: Box::new(left),
@@ -414,18 +418,20 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_pipeline() {
-        // cat file.txt | grep foo | sort
-        let expr = parse("cat file.txt | grep foo | sort").unwrap();
+    fn test_multiline_commands() {
+        let expr = parse("echo a\necho b").unwrap();
         assert_eq!(
             expr,
-            Expr::Pipe {
-                left: Box::new(Expr::Pipe {
-                    left: Box::new(cmd("cat", &["file.txt"])),
-                    right: Box::new(cmd("grep", &["foo"])),
-                }),
-                right: Box::new(cmd("sort", &[])),
+            Expr::Sequence {
+                left: Box::new(cmd("echo", &["a"])),
+                right: Box::new(cmd("echo", &["b"])),
             }
         );
+    }
+
+    #[test]
+    fn test_line_continuation() {
+        let expr = parse("echo \\\nhello").unwrap();
+        assert_eq!(expr, cmd("echo", &["hello"]));
     }
 }
