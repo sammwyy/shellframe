@@ -170,17 +170,24 @@ impl<T> Shell<T> {
             }
 
             Expr::Sequence { left, right } => {
-                let _left_out = self.eval(left, stdin)?;
-                // For a framework, we just return the final output but many shells would print intermediate output here
-                // We'll let the user handle printing if they want, but maybe we should provide a way to 'collect' output?
-                // For now, let's just return the last one as per previous logic.
-                self.eval(right, stdin)
+                let left_out = self.eval(left, stdin)?;
+                let right_out = self.eval(right, stdin)?;
+                Ok(Output::new(
+                    right_out.exit_code,
+                    format!("{}{}", left_out.stdout, right_out.stdout),
+                    format!("{}{}", left_out.stderr, right_out.stderr),
+                ))
             }
 
             Expr::And { left, right } => {
                 let left_out = self.eval(left, stdin)?;
                 if left_out.is_success() {
-                    self.eval(right, stdin)
+                    let right_out = self.eval(right, stdin)?;
+                    Ok(Output::new(
+                        right_out.exit_code,
+                        format!("{}{}", left_out.stdout, right_out.stdout),
+                        format!("{}{}", left_out.stderr, right_out.stderr),
+                    ))
                 } else {
                     Ok(left_out)
                 }
@@ -189,7 +196,12 @@ impl<T> Shell<T> {
             Expr::Or { left, right } => {
                 let left_out = self.eval(left, stdin)?;
                 if !left_out.is_success() {
-                    self.eval(right, stdin)
+                    let right_out = self.eval(right, stdin)?;
+                    Ok(Output::new(
+                        right_out.exit_code,
+                        format!("{}{}", left_out.stdout, right_out.stdout),
+                        format!("{}{}", left_out.stderr, right_out.stderr),
+                    ))
                 } else {
                     Ok(left_out)
                 }
