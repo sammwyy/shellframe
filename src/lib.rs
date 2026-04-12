@@ -170,24 +170,14 @@ impl<T> Shell<T> {
             }
 
             Expr::Sequence { left, right } => {
-                let left_out = self.eval(left, stdin)?;
-                let right_out = self.eval(right, stdin)?;
-                Ok(Output::new(
-                    right_out.exit_code,
-                    format!("{}{}", left_out.stdout, right_out.stdout),
-                    format!("{}{}", left_out.stderr, right_out.stderr),
-                ))
+                let _ = self.eval(left, stdin)?;
+                self.eval(right, stdin)
             }
 
             Expr::And { left, right } => {
                 let left_out = self.eval(left, stdin)?;
                 if left_out.is_success() {
-                    let right_out = self.eval(right, stdin)?;
-                    Ok(Output::new(
-                        right_out.exit_code,
-                        format!("{}{}", left_out.stdout, right_out.stdout),
-                        format!("{}{}", left_out.stderr, right_out.stderr),
-                    ))
+                    self.eval(right, stdin)
                 } else {
                     Ok(left_out)
                 }
@@ -196,12 +186,7 @@ impl<T> Shell<T> {
             Expr::Or { left, right } => {
                 let left_out = self.eval(left, stdin)?;
                 if !left_out.is_success() {
-                    let right_out = self.eval(right, stdin)?;
-                    Ok(Output::new(
-                        right_out.exit_code,
-                        format!("{}{}", left_out.stdout, right_out.stdout),
-                        format!("{}{}", left_out.stderr, right_out.stderr),
-                    ))
+                    self.eval(right, stdin)
                 } else {
                     Ok(left_out)
                 }
