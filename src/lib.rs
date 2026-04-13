@@ -48,6 +48,7 @@ pub struct Context<T = ()> {
     pub env: IndexMap<String, String>,
     pub last_exit_code: i32,
     pub state: T,
+    pub capture: bool,
 }
 
 impl<T> Context<T> {
@@ -60,6 +61,7 @@ impl<T> Context<T> {
             env,
             last_exit_code: 0,
             state,
+            capture: false,
         }
     }
 
@@ -152,14 +154,23 @@ impl<T> Shell<T> {
             Expr::Command { name, args } => self.eval_command(name, args, stdin),
 
             Expr::Pipe { left, right } => {
-                let left_out = self.eval(left, stdin)?;
+                let old_capture = self.context.capture;
+                self.context.capture = true;
+                let left_res = self.eval(left, stdin);
+                self.context.capture = old_capture;
+                let left_out = left_res?;
+
                 self.eval(right, &left_out.stdout)
             }
 
             Expr::Redirect { expr, file, mode } => {
                 let file_str = self.expand_word(file)?;
                 if let Some(handler) = self.redirect_handler.clone() {
-                    handler(self, expr, &file_str, mode, stdin)
+                    let old_capture = self.context.capture;
+                    self.context.capture = true;
+                    let result = handler(self, expr, &file_str, mode, stdin);
+                    self.context.capture = old_capture;
+                    result
                 } else {
                     Ok(Output::error(
                         1,
@@ -237,7 +248,11 @@ impl<T> Shell<T> {
                     result.push_str(&val);
                 }
                 WordPart::CommandSubst(expr) => {
-                    let output = self.eval(expr, "")?;
+                    let old_capture = self.context.capture;
+                    self.context.capture = true;
+                    let output = self.eval(expr, "");
+                    self.context.capture = old_capture;
+                    let output = output?;
                     result.push_str(output.stdout.trim_end_matches('\n'));
                 }
             }
